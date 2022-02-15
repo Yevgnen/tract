@@ -97,29 +97,23 @@ pub fn plug(ops: &mut Ops) {
         MatMatMulF32x16x4::mmm(),
         MatMatMulF32x24x4::mmm(),
     ] {
-        ops.mmm_f32_impls.push((mm, None));
+        ops.mmm_f32_impls.push(mm);
     }
-    match *KIND {
-        Kind::CortexA53 => {
-            ops.mmv_f32 =
-                Box::new(|_, _| Box::new(MatMatMulImpl::<MatMatMulF32x64x1A53, f32>::new()));
-        }
-        _ => {
-            ops.mmv_f32 =
-                Box::new(
-                    |_, _| Box::new(MatMatMulImpl::<arm64simd::MatMatMulF32x64x1, f32>::new()),
-                );
-        }
-    }
+    ops.mmv_f32 = match *KIND {
+        Kind::CortexA53 => Box::new(|_, _| MatMatMulF32x64x1A53::mmm()),
+        _ => Box::new(|_, _| arm64simd::MatMatMulF32x64x1::mmm()),
+    };
     ops.qmmm_i32 = Box::new(|_, _, _| Box::new(MatMatMulImpl::<MatMatMulI32x8x8, i32>::new()));
     ops.qmmv_i32 = Box::new(|_, _| Box::new(MatMatMulImpl::<MatMatMulI32x64x1, i32>::new()));
     ops.sigmoid_f32 = Box::new(|| Box::new(ElementWiseImpl::<SigmoidF32x4n, f32>::new()));
     ops.tanh_f32 = Box::new(|| Box::new(ElementWiseImpl::<TanhF32x4n, f32>::new()));
+    /*
     match *KIND {
-        Kind::CortexA53 => ops.set_cost_models(cortex_a53::models()),
-        Kind::CortexA55 => ops.set_cost_models(cortex_a55::models()),
-        Kind::CortexA72 => ops.set_cost_models(cortex_a72::models()),
-        Kind::CortexA73 => ops.set_cost_models(cortex_a73::models()),
-        _ => ops.set_cost_models(cortex_a53::models()),
+    Kind::CortexA53 => ops.set_cost_models(cortex_a53::models()),
+    Kind::CortexA55 => ops.set_cost_models(cortex_a55::models()),
+    Kind::CortexA72 => ops.set_cost_models(cortex_a72::models()),
+    Kind::CortexA73 => ops.set_cost_models(cortex_a73::models()),
+    _ => ops.set_cost_models(cortex_a53::models()),
     }
+    */
 }
