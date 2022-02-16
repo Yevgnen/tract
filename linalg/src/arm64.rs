@@ -1,5 +1,5 @@
 mod arm64simd;
-mod cortex_a53;
+pub mod cortex_a53;
 mod cortex_a55;
 mod cortex_a72;
 mod cortex_a73;
@@ -9,7 +9,8 @@ use crate::Ops;
 
 use crate::frame::mmm::kernel::MatMatMulKer;
 use crate::frame::ElementWiseImpl;
-use crate::frame::MatMatMulImpl;
+use crate::frame::{MatMatMul, MatMatMulImpl};
+use crate::mmm::CostModel;
 
 lazy_static::lazy_static! {
     static ref KIND: Kind = Kind::choose();
@@ -87,7 +88,7 @@ impl Kind {
 }
 
 pub fn plug(ops: &mut Ops) {
-    for mm in vec![
+    let impls = vec![
         MatMatMulF32x12x8A53::mmm(),
         MatMatMulF32x8x8A53::mmm(),
         MatMatMulF32x16x4A53::mmm(),
@@ -96,9 +97,9 @@ pub fn plug(ops: &mut Ops) {
         MatMatMulF32x8x8::mmm(),
         MatMatMulF32x16x4::mmm(),
         MatMatMulF32x24x4::mmm(),
-    ] {
-        ops.mmm_f32_impls.push(mm);
-    }
+        crate::generic::GenericMmm4x4::<f32, f32, f32>::mmm(),
+    ];
+    ops.mmm_f32_impls = impls.clone();
     ops.mmv_f32 = match *KIND {
         Kind::CortexA53 => Box::new(|_, _| MatMatMulF32x64x1A53::mmm()),
         _ => Box::new(|_, _| arm64simd::MatMatMulF32x64x1::mmm()),
@@ -107,6 +108,14 @@ pub fn plug(ops: &mut Ops) {
     ops.qmmv_i32 = Box::new(|_, _| Box::new(MatMatMulImpl::<MatMatMulI32x64x1, i32>::new()));
     ops.sigmoid_f32 = Box::new(|| Box::new(ElementWiseImpl::<SigmoidF32x4n, f32>::new()));
     ops.tanh_f32 = Box::new(|| Box::new(ElementWiseImpl::<TanhF32x4n, f32>::new()));
+    match *KIND {
+        Kind::CortexA53 => {
+            let model = cortex_a53::model();
+            ops.mmm_f32 =
+                Box::new(move |m, k, n| pick(&model, &impls, m.unwrap(), k.unwrap(), n.unwrap()))
+        }
+        _ => todo!(),
+    }
     /*
     match *KIND {
     Kind::CortexA53 => ops.set_cost_models(cortex_a53::models()),
@@ -116,4 +125,15 @@ pub fn plug(ops: &mut Ops) {
     _ => ops.set_cost_models(cortex_a53::models()),
     }
     */
+}
+
+fn pick(
+    model: &CostModel,
+    impls: &[Box<dyn MatMatMul>],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Box<dyn MatMatMul> {
+    let choice = model.predict(m, k, n);
+    impls.iter().find(|k| k.kernel_name() == choice).unwrap().clone()
 }
